@@ -1,4 +1,4 @@
-from re import findall, compile
+from re import findall, compile, search as re_search, DOTALL
 from asyncio import sleep as asleep
 from urllib.parse import quote, urlparse
 
@@ -78,49 +78,184 @@ async def shrdsk(url: str) -> str:
 
 
 async def terabox(url: str) -> str:
-    sess = Session()
+    """
+    Terabox bypass using the WAP page trick.
+    The WAP share page embeds window.__INITIAL_STATE__ which contains the full
+    file list including dlink — no jsToken, no CAPTCHA needed.
+    Based on: github.com/rjriajul/terabox-downloader-api
+    """
+    import json as _json
 
-    def retryme(url, retries=5):
+    MOBILE_UA = (
+        "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+    )
+
+    def retryme(sess, url, retries=5):
         last_exc = None
         for _ in range(retries):
             try:
-                return sess.get(url, timeout=_TIMEOUT)
+                return sess.get(url, headers={"User-Agent": MOBILE_UA}, timeout=_TIMEOUT)
             except Exception as e:
                 last_exc = e
         raise DDLException(f"Terabox: failed to connect after {retries} retries: {last_exc}")
 
-    url = retryme(url).url
-    key = url.split("?surl=")[-1]
-    url = f"http://www.terabox.com/wap/share/filelist?surl={key}"
-    sess.cookies.update({"ndus": Config.TERA_COOKIE})
+    # Parse surl from any Terabox URL format
+    from urllib.parse import urlparse as _urlparse, parse_qs as _parse_qs
+    parsed = _urlparse(url)
+    if "/s/" in parsed.path:
+        surl = parsed.path.split("/s/")[-1].strip("/")
+    else:
+        qs = _parse_qs(parsed.query)
+        surl = qs.get("surl", [""])[0]
 
-    res = retryme(url)
-    key = res.url.split("?surl=")[-1]
-    soup = BeautifulSoup(res.content, "lxml")
-    jsToken = None
+    if not surl:
+        raise DDLException("Terabox: could not extract surl from URL")
 
-    for fs in soup.find_all("script"):
-        fstring = fs.string
-        if fstring and fstring.startswith("try {eval(decodeURIComponent"):
-            jsToken = fstring.split("%22")[1]
+    # Strip leading '1' if present (path-form URLs prepend it)
+    if len(surl) > 22 and surl.startswith("1"):
+        surl = surl[1:]
 
-    res = retryme(
-        f"https://www.terabox.com/share/list?app_id=250528&jsToken={jsToken}&shorturl={key}&root=1"
-    )
-    result = res.json()
-    if result["errno"] != 0:
-        raise DDLException(f"{result['errmsg']} — Check cookies")
-    result = result["list"]
-    if len(result) > 1:
-        raise DDLException("Can't download multiple files")
-    result = result[0]
+    # 1. Try custom Terabox Downloader API with streaming proxy support
+    if Config.TERA_API_URL:
+        try:
+            api_res = rpost(
+                f"{Config.TERA_API_URL}/download",
+                json={"url": url},
+                headers={"Content-Type": "application/json", "User-Agent": MOBILE_UA},
+                timeout=25,
+            )
+            if api_res.status_code == 200:
+                res_data = api_res.json()
+                if res_data.get("status") == "success":
+                    api_files = res_data.get("data", {}).get("files", [])
+                    if api_files:
+                        parse_txt = ""
+                        for item in api_files:
+                            name = item.get("filename", "Unknown")
+                            size = item.get("size", "Unknown")
+                            dl_url = item.get("proxy_url") or item.get("dlink")
+                            if dl_url:
+                                parse_txt += (
+                                    f"\n┎ <b>File:</b> <code>{name}</code>\n"
+                                    f"┠ <b>Size:</b> <code>{size}</code>\n"
+                                    f"┗ <b>DDL:</b> <a href='{dl_url}'>Click Here</a>\n"
+                                )
+                        if parse_txt:
+                            return parse_txt.strip()
+        except Exception:
+            pass
 
-    if result["isdir"] != "0":
-        raise DDLException("Can't download folder")
-    try:
-        return result["dlink"]
-    except Exception:
-        raise DDLException("Link Extraction Failed")
+    sess = Session()
+    _COOKIE_DOMAINS = [
+        ".terabox.com", ".www.terabox.com",
+        ".1024terabox.com", ".1024tera.com",
+        ".teraboxapp.com", ".terabox.app",
+        ".nephobox.com", ".4funbox.co",
+        ".mirrobox.com", ".momerybox.com",
+        ".teraboxlink.com", ".terafileshare.com",
+        ".freeterabox.com", ".teraboxshare.com",
+        ".terasharefile.com",
+    ]
+    tera_cookie = Config.TERA_COOKIE.replace("ndus=", "").strip()
+    for _d in _COOKIE_DOMAINS:
+        sess.cookies.set("ndus", tera_cookie, domain=_d)
+
+    # Try WAP page on multiple domains
+    html = None
+    for wap_url in [
+        f"http://www.terabox.com/wap/share/filelist?surl={surl}",
+        f"https://www.1024terabox.com/wap/share/filelist?surl={surl}",
+        f"https://www.teraboxapp.com/wap/share/filelist?surl={surl}",
+        f"https://www.nephobox.com/wap/share/filelist?surl={surl}",
+        f"https://www.4funbox.co/wap/share/filelist?surl={surl}",
+        f"https://www.mirrobox.com/wap/share/filelist?surl={surl}",
+        f"https://www.momerybox.com/wap/share/filelist?surl={surl}",
+        f"https://www.terasharefile.com/wap/share/filelist?surl={surl}",
+    ]:
+        try:
+            res = retryme(sess, wap_url)
+            if res.status_code == 200 and "__INITIAL_STATE__" in res.text:
+                html = res.text
+                break
+        except DDLException:
+            continue
+
+    if not html:
+        raise DDLException("Terabox: could not load WAP page — check TERA_COOKIE")
+
+    # Extract window.__INITIAL_STATE__ JSON
+    m = re_search(r'window\.__INITIAL_STATE__\s*=\s*(\{.+?\})\s*(?:;|</script>)', html, DOTALL)
+
+    file_list = []
+    if m:
+        try:
+            state = _json.loads(m.group(1))
+            file_list = state.get("share", {}).get("fileList", [])
+        except Exception:
+            pass
+
+    if not file_list:
+        # Fallback: parse fileList array directly
+        fl_m = re_search(r'"fileList"\s*:\s*(\[.+?\])\s*,\s*"', html, DOTALL)
+        if fl_m:
+            try:
+                file_list = _json.loads(fl_m.group(1))
+            except Exception:
+                pass
+
+    if not file_list:
+        raise DDLException("Terabox: no files found in WAP page — link may be expired or private")
+
+    # Filter out folders
+    files = [f for f in file_list if str(f.get("isdir", "0")) != "1"]
+    if not files:
+        raise DDLException("Terabox: share contains only folders")
+
+    def _human_size(b: int) -> str:
+        for unit in ("B", "KB", "MB", "GB", "TB"):
+            if b < 1024:
+                return f"{b:.2f} {unit}"
+            b /= 1024
+        return f"{b:.2f} PB"
+
+    # Helper to resolve redirect using the authenticated session to get public CDN URL
+    def _resolve_direct_url(raw_dlink: str) -> str:
+        if not raw_dlink:
+            return ""
+        try:
+            head_res = sess.head(raw_dlink, headers={"User-Agent": MOBILE_UA}, allow_redirects=True, timeout=_TIMEOUT)
+            if head_res.url and head_res.url != raw_dlink:
+                return head_res.url
+        except Exception:
+            pass
+        return raw_dlink
+
+    # Build formatted output for all files
+    parse_txt = ""
+    for item in files:
+        dlink = item.get("dlink", "")
+        name = item.get("server_filename", "Unknown")
+        size = _human_size(int(item.get("size", 0)))
+        
+        if not dlink:
+            parse_txt += (
+                f"\n┎ <b>File:</b> <code>{name}</code>\n"
+                f"┠ <b>Size:</b> <code>{size}</code>\n"
+                f"┗ <b>DDL:</b> Unavailable — check TERA_COOKIE\n"
+            )
+        else:
+            final_dl = _resolve_direct_url(dlink)
+            parse_txt += (
+                f"\n┎ <b>File:</b> <code>{name}</code>\n"
+                f"┠ <b>Size:</b> <code>{size}</code>\n"
+                f"┗ <b>DDL:</b> <a href='{final_dl}'>Click Here</a>\n"
+            )
+
+    if not parse_txt:
+        raise DDLException("Terabox: no dlink found — check TERA_COOKIE")
+
+    return parse_txt.strip()
 
 
 async def try2link(url: str) -> str:

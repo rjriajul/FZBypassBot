@@ -167,7 +167,13 @@ _REGISTRY: list[tuple] = [
 ]
 
 # DL link patterns that need extra args — checked after the registry
-_TERABOX_DOMAINS = {"1024tera", "terabox", "nephobox", "4funbox", "mirrobox", "momerybox", "teraboxapp"}
+_TERABOX_DOMAINS = {
+    "terabox", "1024terabox", "1024tera", "teraboxapp", "terabox.app",
+    "nephobox", "4funbox", "mirrobox", "momerybox",
+    "teraboxlink", "terafileshare", "freeterabox",
+    "teraboxshare", "terabox1", "terabox2",
+    "terasharefile",
+}
 
 
 async def direct_link_checker(link, onlylink=False):

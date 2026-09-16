@@ -37,9 +37,9 @@ class Config:
     GDTOT_CRYPT = getenv("GDTOT_CRYPT", "")
     DRIVEFIRE_CRYPT = getenv("DRIVEFIRE_CRYPT", "")
     HUBDRIVE_CRYPT = getenv("HUBDRIVE_CRYPT", "")
-    KATDRIVE_CRYPT = getenv("KATDRIVE_CRYPT", "")
     TERA_COOKIE = getenv("TERA_COOKIE", "")
-
+    TERA_API_URL = getenv("TERA_API_URL", "https://terabox-downloader-api-pqxy.onrender.com").rstrip("/")
+    KATDRIVE_CRYPT = getenv("KATDRIVE_CRYPT", "")
 
 Bypass = Client(
     "FZ",
