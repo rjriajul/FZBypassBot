@@ -5,13 +5,13 @@ from cloudscraper import create_scraper
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup, NavigableString, Tag
 
-from FZBypass.core.bypass_ddl import transcript
+from FZBypass.core.bypass_ddl import transcript, _TIMEOUT
 
 
 async def sharespark(url: str) -> str:
     gd_txt = ""
     cget = create_scraper().request
-    res = cget("GET", "?action=printpage;".join(url.split("?")))
+    res = cget("GET", "?action=printpage;".join(url.split("?")), timeout=_TIMEOUT)
     soup = BeautifulSoup(res.text, "html.parser")
     for br in soup.findAll("br"):
         next_s = br.nextSibling
@@ -28,7 +28,7 @@ async def sharespark(url: str) -> str:
             for s in next_s.split():
                 ns = sub(r"\(|\)", "", s)
                 if match(r"https?://.+\.gdtot\.\S+", ns):
-                    soup = BeautifulSoup(cget("GET", ns).text, "html.parser")
+                    soup = BeautifulSoup(cget("GET", ns, timeout=_TIMEOUT).text, "html.parser")
                     parse_data = (
                         (soup.select('meta[property^="og:description"]')[0]["content"])
                         .replace("Download ", "")
@@ -45,7 +45,7 @@ async def sharespark(url: str) -> str:
 
 
 async def skymovieshd(url: str) -> str:
-    soup = BeautifulSoup(rget(url, allow_redirects=False).text, "html.parser")
+    soup = BeautifulSoup(rget(url, allow_redirects=False, timeout=_TIMEOUT).text, "html.parser")
     t = soup.select('div[class^="Robiul"]')
     gd_txt = f"<i>{t[-1].text.replace('Download ', '')}</i>"
     _cache = []
@@ -55,7 +55,7 @@ async def skymovieshd(url: str) -> str:
         _cache.append(link["href"])
         gd_txt += f"\n\n<b>{link.text} :</b> \n"
         nsoup = BeautifulSoup(
-            rget(link["href"], allow_redirects=False).text, "html.parser"
+            rget(link["href"], allow_redirects=False, timeout=_TIMEOUT).text, "html.parser"
         )
         atag = nsoup.select('div[class="cotent-box"] > a[href]')
         for no, link in enumerate(atag, start=1):
@@ -64,7 +64,7 @@ async def skymovieshd(url: str) -> str:
 
 
 async def cinevood(url: str) -> str:
-    soup = BeautifulSoup(rget(url).text, "html.parser")
+    soup = BeautifulSoup(rget(url, timeout=_TIMEOUT).text, "html.parser")
     titles = soup.select("h6")
     links_by_title = {}
 
@@ -124,14 +124,14 @@ async def cinevood(url: str) -> str:
 
 
 async def kayoanime(url: str) -> str:
-    soup = BeautifulSoup(rget(url).text, "html.parser")
+    soup = BeautifulSoup(rget(url, timeout=_TIMEOUT).text, "html.parser")
     titles = soup.select("h6")
     gdlinks = soup.select('a[href*="drive.google.com"], a[href*="tinyurl"]')
     prsd = f"<b>{soup.title.string}</b>"
     gd_txt, link = "GDrive", ""
     for n, gd in enumerate(gdlinks, start=1):
         if (link := gd["href"]) and "tinyurl" in link:
-            link = rget(link).url
+            link = rget(link, timeout=_TIMEOUT).url
             domain = urlparse(link).hostname
             gd_txt = (
                 "Mega"
@@ -149,8 +149,8 @@ async def kayoanime(url: str) -> str:
 
 async def toonworld4all(url: str):
     if "/redirect/main.php?url=" in url:
-        return f"┎ <b>Source Link:</b> {url}\n┃\n┖ <b>Bypass Link:</b> {rget(url).url}"
-    xml = rget(url).text
+        return f"┎ <b>Source Link:</b> {url}\n┃\n┖ <b>Bypass Link:</b> {rget(url, timeout=_TIMEOUT).url}"
+    xml = rget(url, timeout=_TIMEOUT).text
     soup = BeautifulSoup(xml, "html.parser")
     if "/episode/" not in url:
         epl = soup.select('a[href*="/episode/"]')
@@ -172,7 +172,7 @@ async def toonworld4all(url: str):
     for sl in links:
         nsl = ""
         while all(x not in nsl for x in ["rocklinks", "link1s"]):
-            nsl = rget(sl["href"], allow_redirects=False).headers["location"]
+            nsl = rget(sl["href"], allow_redirects=False, timeout=_TIMEOUT).headers["location"]
         if "rocklinks" in nsl:
             atasks.append(
                 create_task(
@@ -207,7 +207,7 @@ async def toonworld4all(url: str):
 
 async def tamilmv(url):
     cget = create_scraper().request
-    resp = cget("GET", url)
+    resp = cget("GET", url, timeout=_TIMEOUT)
     soup = BeautifulSoup(resp.text, "html.parser")
     mag = soup.select('a[href^="magnet:?xt=urn:btih:"]')
     tor = soup.select('a[data-fileext="torrent"]')

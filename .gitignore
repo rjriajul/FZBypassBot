@@ -160,3 +160,8 @@ cython_debug/
 #.idea/
 config.env
 log.txt
+
+FZ.*
+.session_creds_hash
+*.session
+*.session-journal

@@ -35,7 +35,24 @@ async def get_result(func, message):
         if content.startswith("```") and content.endswith("```")
         else content.strip("` \n")
     )
-    env = {"__builtins__": globals()["__builtins__"], "bot": Bypass, "message": message}
+    env = {
+        "__builtins__": {
+            k: __builtins__[k]
+            for k in (
+                "print", "len", "range", "str", "int", "float", "list", "dict",
+                "set", "tuple", "bool", "type", "repr", "enumerate", "zip",
+                "map", "filter", "sorted", "reversed", "any", "all", "sum",
+                "min", "max", "abs", "round", "isinstance", "hasattr",
+                "getattr", "setattr", "vars", "dir", "hex", "bin", "oct",
+                "chr", "ord", "hash", "id", "callable", "iter", "next",
+                "open", "Exception", "ValueError", "TypeError", "KeyError",
+                "IndexError", "AttributeError", "StopIteration",
+            )
+            if k in __builtins__
+        },
+        "bot": Bypass,
+        "message": message,
+    }
 
     chdir(getcwd())
     with open(ospath.join(getcwd(), "FZBypass/temp.txt"), "w") as temp:

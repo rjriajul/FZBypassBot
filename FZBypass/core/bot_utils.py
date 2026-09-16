@@ -1,9 +1,23 @@
 from wzgram.filters import create
 from wzgram.enums import MessageEntityType
 from re import search, match
+from time import time
 from requests import get as rget
 from urllib.parse import urlparse, parse_qs
 from FZBypass import Config
+
+# Per-user cooldown: minimum seconds between bypass requests
+_COOLDOWN_SECS = 2.0
+_cooldowns: dict[int, float] = {}
+
+
+def check_cooldown(user_id: int) -> bool:
+    """Returns True if the user is allowed (cooldown elapsed), False if still on cooldown."""
+    now = time()
+    if now - _cooldowns.get(user_id, 0.0) < _COOLDOWN_SECS:
+        return False
+    _cooldowns[user_id] = now
+    return True
 
 
 async def auth_topic(_, __, message):

@@ -12,7 +12,8 @@ from wzgram.errors import QueryIdInvalid
 
 from FZBypass import Config, Bypass, BOT_START
 from FZBypass.core.bypass_checker import direct_link_checker, is_excep_link
-from FZBypass.core.bot_utils import AuthChatsTopics, convert_time, BypassFilter
+from FZBypass.core.bot_utils import AuthChatsTopics, convert_time, BypassFilter, check_cooldown
+from FZBypass import LOGGER
 
 
 @Bypass.on_message(command("start"))
@@ -42,6 +43,12 @@ async def start_msg(client, message):
 @Bypass.on_message(BypassFilter & (user(Config.OWNER_ID) | AuthChatsTopics))
 async def bypass_check(client, message):
     uid = message.from_user.id
+
+    # Per-user rate limit
+    if not check_cooldown(uid):
+        await message.reply("<i>Slow down! Please wait a moment before sending another request.</i>")
+        return
+
     if (reply_to := message.reply_to_message) and (
         reply_to.text is not None or reply_to.caption is not None
     ):
@@ -75,6 +82,7 @@ async def bypass_check(client, message):
     parse_data = []
     for result, link in zip(completed_tasks, tlinks):
         if isinstance(result, Exception):
+            LOGGER.warning("Bypass failed | user=%s | link=%s | error=%s", uid, link, result)
             bp_link = f"\n┖ <b>Bypass Error:</b> {result}"
         elif is_excep_link(link):
             bp_link = result

@@ -1,9 +1,24 @@
 from FZBypass import Bypass, LOGGER, Config
 from wzgram import idle
 from wzgram.filters import command, user
-from os import path as ospath, execl
-from asyncio import create_subprocess_exec
+from os import path as ospath, execl, remove
+from asyncio import create_subprocess_exec, run
 from sys import executable
+from hashlib import md5
+from glob import glob
+
+
+def _credentials_changed() -> bool:
+    """Returns True if bot credentials have changed since last session was created."""
+    token_hash = md5(f"{Config.BOT_TOKEN}{Config.API_ID}{Config.API_HASH}".encode()).hexdigest()
+    hash_file = ".session_creds_hash"
+    if ospath.exists(hash_file):
+        with open(hash_file) as f:
+            if f.read().strip() == token_hash:
+                return False
+    with open(hash_file, "w") as f:
+        f.write(token_hash)
+    return True
 
 
 @Bypass.on_message(command("restart") & user(Config.OWNER_ID))
@@ -31,6 +46,14 @@ async def notify_restart():
 
 
 async def main():
+    # Only wipe session files when credentials have actually changed
+    if _credentials_changed():
+        for f in glob("*.session") + glob("*.session-journal"):
+            try:
+                remove(f)
+                LOGGER.info("Credentials changed — removed stale session: %s", f)
+            except Exception:
+                pass
     await Bypass.start()
     LOGGER.info("FZ Bot Started!")
     await notify_restart()
@@ -38,4 +61,4 @@ async def main():
     await Bypass.stop()
 
 
-Bypass.loop.run_until_complete(main())
+run(main())

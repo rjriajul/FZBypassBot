@@ -246,9 +246,9 @@ async def sharerpw(url: str, force=False):
             "laravel_session": Config.LARAVEL_SESSION,
         },
     )
-    parse_txt = findall(">(.*?)<\/td>", resp.text)
+    parse_txt = findall(r">(.*?)<\/td>", resp.text)
     ddl_btn = etree.HTML(resp.content).xpath("//button[@id='btndirect']")
-    token = findall("_token\s=\s'(.*?)'", resp.text, DOTALL)[0]
+    token = findall(r"_token\s=\s'(.*?)'", resp.text, DOTALL)[0]
     data = {"_token": token}
     if not force:
         data["nl"] = 1
@@ -288,7 +288,7 @@ async def sharer_scraper(url):
         res = cget("GET", url, headers=header)
     except Exception as e:
         raise DDLException(f"{e.__class__.__name__}")
-    key = findall('"key",\s+"(.*?)"', res.text)
+    key = findall(r'"key",\s+"(.*?)"', res.text)
     if not key:
         raise DDLException("Download Link Key not found!")
     key = key[0]
