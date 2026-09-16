@@ -1,12 +1,13 @@
 aiohttp
 bs4
-cfscrape
 cloudscraper
 curl_cffi
+flask
 lxml
-httpx
 python-dotenv
 requests
-urllib3==1.26
 uvloop
 wzgram
+# playwright  # Optional: install manually for JS-rendered bypass support
+#             # NOT recommended on free-tier deployments (adds ~280MB RAM)
+#             # To enable: pip install playwright && playwright install chromium

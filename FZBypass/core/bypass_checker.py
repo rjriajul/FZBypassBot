@@ -131,6 +131,7 @@ _REGISTRY: list[tuple] = [
     (r"https?://.+\.earn2me\.\S+",                           _t("https://blog.filepresident.com/",          "https://easyworldbusiness.com/",           5)),
     (r"https?://(.+\.)?vplink(s)?\.\S+",                        vplink),
     (r"https?://.+\.hittracks\.\S+",                            hittracks),
+    (r"https?://.+\.entiredust\.\S+",                           hittracks),
     (r"https?://vcloud\.\S+",                                   vcloud,             True),
     (r"https?://dotflix\.\S+",                                  dotflix,            True),
     (r"https?://.+\.narzolinks\.\S+",                        _t("https://go.narzolinks.click/",             "https://hydtech.in/",                      5)),

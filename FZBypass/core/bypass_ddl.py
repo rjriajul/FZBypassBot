@@ -357,169 +357,264 @@ async def thinfi(url: str) -> str:
         raise DDLException("thinfi: link extraction failed")
 
 
+async def _playwright_final_url(
+    url: str,
+    *,
+    wait_until: str = "networkidle",
+    timeout_ms: int = 30000,
+    stop_domains: list[str] | None = None,
+) -> str:
+    """
+    Launch a headless Chromium via playwright, navigate to `url`, wait for
+    the redirect chain to settle, and return the final URL.
+
+    Only used as a last resort — requires playwright to be installed.
+    On free-tier deployments without playwright, raises DDLException gracefully.
+
+    stop_domains: if the browser lands on any of these domains, stop early
+    and return that URL immediately (avoids waiting on known dead-end ad pages).
+    """
+    try:
+        from playwright.async_api import async_playwright
+    except ImportError:
+        raise DDLException("playwright not installed — cannot bypass JS-rendered page")
+
+    stop_domains = stop_domains or []
+
+    async with async_playwright() as pw:
+        browser = await pw.chromium.launch(headless=True)
+        ctx = await browser.new_context(
+            user_agent="Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 "
+                       "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+            java_script_enabled=True,
+        )
+        page = await ctx.new_page()
+        final = {"url": url}
+
+        def _on_navigate(frame):
+            if frame == page.main_frame:
+                final["url"] = frame.url
+
+        page.on("framenavigated", _on_navigate)
+
+        try:
+            await page.goto(url, wait_until=wait_until, timeout=timeout_ms)
+        except Exception:
+            pass  # timeout or navigation error — use whatever URL we landed on
+
+        result = page.url or final["url"]
+
+        # If we landed on a known dead-end ad domain, raise immediately
+        for dead in stop_domains:
+            if dead in result:
+                await browser.close()
+                raise DDLException(f"Landed on dead-end ad page: {result}")
+
+        await browser.close()
+        return result
+
+
 async def vplink(url: str) -> str:
     """
-    vplink.in — try a direct API call first using the short code,
-    then fall back to scraping the <a href> from the page.
+    vplink.in — multi-hop ad chain that goes through hittracks, entiredust, etc.
+    before landing on the final URL. Use playwright to follow the full chain.
+    Waits up to 90 seconds for all redirects to complete.
     """
-    code = url.rstrip("/").split("/")[-1]
-    useragent = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
-    domain = "https://vplink.in"
+    _AD_DOMAINS = [
+        "hittracks.in.net",
+        "entiredust.in",
+        "studyeducations",
+        "studiissinsuarcness",
+        "studyscholorhiipss",
+        "vplink.in",
+    ]
 
-    client = cSession()
-
-    # First try: direct POST to /links/go using the short code
-    # (same pattern as transcript-style shorteners, but with curl_cffi for TLS)
     try:
+        from playwright.async_api import async_playwright
+        from asyncio import sleep as asleep
+
+        async with async_playwright() as pw:
+            browser = await pw.chromium.launch(headless=True)
+            ctx = await browser.new_context(
+                user_agent="Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 "
+                           "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+                java_script_enabled=True,
+            )
+            page = await ctx.new_page()
+            visited = []
+
+            def _on_nav(frame):
+                if frame == page.main_frame and frame.url.startswith("http"):
+                    if not visited or visited[-1] != frame.url:
+                        visited.append(frame.url)
+
+            page.on("framenavigated", _on_nav)
+
+            try:
+                await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            except Exception:
+                pass
+
+            # Wait up to 90 seconds polling every second for the chain to complete
+            for _ in range(90):
+                current = page.url
+                if not any(d in current for d in _AD_DOMAINS):
+                    break
+                await asleep(1)
+
+            final = page.url
+            await browser.close()
+
+            # Return last non-ad URL from visited history
+            for u in reversed(visited):
+                if not any(d in u for d in _AD_DOMAINS):
+                    return u
+
+            if final and not any(d in final for d in _AD_DOMAINS):
+                return final
+
+            raise DDLException("vplink: redirect chain did not resolve to a final URL")
+
+    except ImportError:
+        # No playwright — return the first redirect URL as a best-effort result
+        code = url.rstrip("/").split("/")[-1]
+        useragent = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+        client = cSession()
         res = client.get(
-            f"{domain}/{code}",
-            headers={"Referer": "https://insurance.findgptprompts.com/", "User-Agent": useragent},
+            f"https://vplink.in/{code}",
+            headers={"Referer": "https://google.com", "User-Agent": useragent},
             impersonate="chrome120",
             timeout=_TIMEOUT,
         )
         soup = BeautifulSoup(res.content, "html.parser")
-
-        # Check for Cloudflare
-        title = soup.find("title")
-        if title and "just a moment" in title.text.lower():
-            raise DDLException("vplink: Cloudflare protected")
-
-        # Try form-based POST first (transcript-style)
-        data = {
-            inp.get("name"): inp.get("value")
-            for inp in soup.find_all("input")
-            if inp.get("name") and inp.get("value")
-        }
-        if data:
-            await asleep(5)
-            resp = client.post(
-                f"{domain}/links/go",
-                data=data,
-                headers={
-                    "Referer": f"{domain}/{code}",
-                    "X-Requested-With": "XMLHttpRequest",
-                    "User-Agent": useragent,
-                },
-                impersonate="chrome120",
-                timeout=_TIMEOUT,
-            )
-            if "application/json" in resp.headers.get("Content-Type", ""):
-                try:
-                    return resp.json()["url"]
-                except (KeyError, Exception):
-                    pass
-
-        # Fallback: extract <a href> direct redirect
         a = soup.find("a", href=True)
         if a and a["href"].startswith("http"):
-            # The <a href> points to hittracks which is an ad page.
-            # Extract the original code from the hittracks URL and call its API directly.
-            href = a["href"]
-            from re import search as rsearch
-            # Look for the real short code in the hittracks query string
-            m = rsearch(r'[?&](?:insurancessstudiiss|code|id|key)=([A-Za-z0-9]+)', href)
-            if m:
-                short_code = m.group(1)
-                # Try calling the vplink API directly with the code
-                api_resp = client.get(
-                    f"{domain}/api/{short_code}",
-                    headers={"User-Agent": useragent},
-                    impersonate="chrome120",
-                    timeout=_TIMEOUT,
-                )
-                if api_resp.status_code == 200:
-                    try:
-                        return api_resp.json().get("url") or api_resp.json().get("destination")
-                    except Exception:
-                        pass
-            return href
-
-    except DDLException:
-        raise
-    except Exception as e:
-        raise DDLException(f"vplink: {e.__class__.__name__}")
+            return a["href"]
+        raise DDLException("vplink: playwright not installed and no redirect found")
 
 
 async def hittracks(url: str) -> str:
     """
-    hittracks.in.net is an ad landing page for vplink.in links.
-    The real destination is stored on vplink.in — extract the uiso ID
-    from the hittracks URL and call the vplink API directly.
+    hittracks.in.net / entiredust.in — multi-hop ad chains.
+    Use playwright to follow all redirects to the final destination.
     """
-    from re import search as rsearch
-    useragent = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+    _AD_DOMAINS = [
+        "hittracks.in.net",
+        "entiredust.in",
+        "studyeducations",
+        "studiissinsuarcness",
+        "studyscholorhiipss",
+    ]
 
-    # Extract the original short code and uiso from the URL
-    # e.g. ?insurancessstudiiss=dOUZ&uiso=24331
-    code_m = rsearch(r'[?&](?:insurancessstudiiss|code|id|key)=([A-Za-z0-9]+)', url)
-    uiso_m = rsearch(r'[?&]uiso=([0-9]+)', url)
+    try:
+        from playwright.async_api import async_playwright
+        from asyncio import sleep as asleep
 
-    if code_m and uiso_m:
-        short_code = code_m.group(1)
-        uiso = uiso_m.group(1)
-        client = cSession()
+        async with async_playwright() as pw:
+            browser = await pw.chromium.launch(headless=True)
+            ctx = await browser.new_context(
+                user_agent="Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 "
+                           "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+                java_script_enabled=True,
+            )
+            page = await ctx.new_page()
+            visited = []
 
-        # Try known vplink API patterns with the code and uiso
-        for api_url in [
-            f"https://vplink.in/api/get?code={short_code}&id={uiso}",
-            f"https://vplink.in/api?code={short_code}&uiso={uiso}",
-            f"https://vplink.in/go?code={short_code}&uiso={uiso}",
-            f"https://vplink.in/links/get?code={short_code}&id={uiso}",
-        ]:
+            def _on_nav(frame):
+                if frame == page.main_frame and frame.url.startswith("http"):
+                    if not visited or visited[-1] != frame.url:
+                        visited.append(frame.url)
+
+            page.on("framenavigated", _on_nav)
+
             try:
-                resp = client.get(api_url, headers={"User-Agent": useragent}, impersonate="chrome120", timeout=_TIMEOUT)
-                if resp.status_code == 200 and "application/json" in resp.headers.get("Content-Type", ""):
-                    data = resp.json()
-                    dest = data.get("url") or data.get("destination") or data.get("link")
-                    if dest and dest.startswith("http"):
-                        return dest
+                await page.goto(url, wait_until="domcontentloaded", timeout=30000)
             except Exception:
-                continue
+                pass
 
-    # Fallback: fetch the hittracks page and extract window.location.href
-    async with ClientSession(timeout=_AIOHTTP_TIMEOUT) as session:
-        async with session.get(
-            url,
-            headers={"Referer": "https://insurance.findgptprompts.com/", "User-Agent": useragent},
-        ) as res:
-            html = await res.text()
+            for _ in range(90):
+                current = page.url
+                if not any(d in current for d in _AD_DOMAINS):
+                    break
+                await asleep(1)
 
-    match = rsearch(r'window\.location\.href\s*=\s*"(https?://[^"]+)"', html)
-    if match:
-        redirect = match.group(1)
-        # Skip the fake study article pages — they are dead ends
-        if "studyeducations" not in redirect:
-            return redirect
+            final = page.url
+            await browser.close()
 
-    soup = BeautifulSoup(html, "html.parser")
-    a = soup.find("a", href=True)
-    if a and a["href"].startswith("http") and "studyeducations" not in a["href"]:
-        return a["href"]
+            for u in reversed(visited):
+                if not any(d in u for d in _AD_DOMAINS):
+                    return u
 
-    raise DDLException("hittracks: could not extract final destination")
+            if final and not any(d in final for d in _AD_DOMAINS):
+                return final
+
+            raise DDLException("hittracks: redirect chain did not resolve to a final URL")
+
+    except ImportError:
+        raise DDLException("hittracks: playwright not installed")
 
 
 async def vcloud(url: str) -> str:
     """
-    vcloud.fit — direct file host. Scrape the download link.
+    vcloud.fit — use the free PBX1 public API, fall back to playwright if available.
     """
-    from re import search as rsearch
-    from FZBypass import LOGGER
-    useragent = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+    # Try free public API first
+    try:
+        api_url = f"https://pbx1botapi.vercel.app/api/vcloud?url={url}"
+        async with ClientSession(timeout=_AIOHTTP_TIMEOUT) as session:
+            async with session.get(api_url) as resp:
+                if resp.status == 200:
+                    data = await resp.json(content_type=None)
+                    link = data.get("url") or data.get("link") or data.get("download")
+                    if link and link.startswith("http"):
+                        return link
+    except Exception:
+        pass
 
+    # Playwright fallback
+    try:
+        from playwright.async_api import async_playwright
+        async with async_playwright() as pw:
+            browser = await pw.chromium.launch(headless=True)
+            ctx = await browser.new_context(
+                user_agent="Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 "
+                           "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+            )
+            page = await ctx.new_page()
+            try:
+                await page.goto(url, wait_until="networkidle", timeout=30000)
+            except Exception:
+                pass
+            for selector in ['a[href*="download"]', 'a[id*="download"]', 'a[class*="download"]', 'a[href*="/d/"]', 'a[href*="/file/"]']:
+                try:
+                    el = await page.query_selector(selector)
+                    if el:
+                        href = await el.get_attribute("href")
+                        if href and href.startswith("http"):
+                            await browser.close()
+                            return href
+                except Exception:
+                    continue
+            final = page.url
+            await browser.close()
+            if final and final != url and final.startswith("http"):
+                return final
+    except ImportError:
+        pass
+
+    # curl_cffi scrape fallback
+    from re import search as rsearch
+    useragent = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
     client = cSession()
     res = client.get(url, headers={"User-Agent": useragent}, impersonate="chrome120", timeout=_TIMEOUT)
-    LOGGER.warning("vcloud DEBUG html: %s", res.text[:2000])
-
     soup = BeautifulSoup(res.content, "html.parser")
     for selector in ['a[href*="download"]', 'a[id*="download"]', 'a[class*="download"]', 'a[href*="/d/"]', 'a[href*="/file/"]']:
         tag = soup.select_one(selector)
         if tag and tag.get("href", "").startswith("http"):
             return tag["href"]
-
-    match = rsearch(r'window\.location(?:\.href)?\s*=\s*["\x27](https?://[^"\']+)["\x27]', res.text)
-    if match:
-        return match.group(1)
+    m = rsearch(r'window\.location(?:\.href)?\s*=\s*["\x27](https?://[^"\']+)["\x27]', res.text)
+    if m:
+        return m.group(1)
 
     raise DDLException("vcloud: no download link found")
 
@@ -527,23 +622,50 @@ async def vcloud(url: str) -> str:
 async def dotflix(url: str) -> str:
     """
     dotflix.store/share/ — JS-rendered GDrive wrapper.
+    Uses playwright if available, otherwise curl_cffi scrape.
     """
-    from re import search as rsearch
-    from FZBypass import LOGGER
-    useragent = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+    try:
+        from playwright.async_api import async_playwright
+        async with async_playwright() as pw:
+            browser = await pw.chromium.launch(headless=True)
+            ctx = await browser.new_context(
+                user_agent="Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 "
+                           "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+            )
+            page = await ctx.new_page()
+            try:
+                await page.goto(url, wait_until="networkidle", timeout=30000)
+            except Exception:
+                pass
+            for selector in ['a[href*="drive.google.com"]', 'a[href*="download"]', 'a[id*="download"]', 'a[class*="download"]', 'a[href*="/d/"]']:
+                try:
+                    el = await page.query_selector(selector)
+                    if el:
+                        href = await el.get_attribute("href")
+                        if href and href.startswith("http"):
+                            await browser.close()
+                            return href
+                except Exception:
+                    continue
+            final = page.url
+            await browser.close()
+            if final and final != url and final.startswith("http"):
+                return final
+    except ImportError:
+        pass
 
+    # Lightweight fallback
+    from re import search as rsearch
+    useragent = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
     client = cSession()
     res = client.get(url, headers={"User-Agent": useragent}, impersonate="chrome120", timeout=_TIMEOUT)
-    LOGGER.warning("dotflix DEBUG html: %s", res.text[:2000])
-
     soup = BeautifulSoup(res.content, "html.parser")
     for selector in ['a[href*="drive.google.com"]', 'a[href*="download"]', 'a[id*="download"]', 'a[class*="download"]', 'a[href*="/d/"]']:
         tag = soup.select_one(selector)
         if tag and tag.get("href", "").startswith("http"):
             return tag["href"]
-
-    match = rsearch(r'window\.location(?:\.href)?\s*=\s*["\x27](https?://[^"\']+)["\x27]', res.text)
-    if match:
-        return match.group(1)
+    m = rsearch(r'window\.location(?:\.href)?\s*=\s*["\x27](https?://[^"\']+)["\x27]', res.text)
+    if m:
+        return m.group(1)
 
     raise DDLException("dotflix: no download link found")
