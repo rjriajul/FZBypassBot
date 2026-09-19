@@ -3,10 +3,10 @@ bs4
 cfscrape
 cloudscraper
 curl_cffi
+httpx
 lxml
 psutil
-httpx
 requests
-urllib3==1.26
+urllib3>=2.0
 uvloop
 wzgram

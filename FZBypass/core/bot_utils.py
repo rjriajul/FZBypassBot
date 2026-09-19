@@ -28,6 +28,17 @@ async def auth_topic(_, __, message):
 AuthChatsTopics = create(auth_topic)
 
 
+async def auth_channel(_, __, message):
+    """Filter for channel posts in AUTH_CHANNELS."""
+    from wzgram.enums import ChatType
+    if message.chat.type != ChatType.CHANNEL:
+        return False
+    return str(message.chat.id) in Config.AUTH_CHANNELS
+
+
+AuthChannels = create(auth_channel)
+
+
 async def auto_bypass(_, c, message):
     if (
         Config.AUTO_BYPASS

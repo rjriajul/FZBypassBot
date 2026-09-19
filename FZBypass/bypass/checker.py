@@ -33,7 +33,7 @@ def is_share_link(url):
 def is_excep_link(url):
     return bool(
         match(
-            r"https?:\/\/.+\.(1tamilmv|gdtot|filepress|pressbee|gdflix|sharespark)\.\S+|https?:\/\/(sharer|onlystream|hubdrive|katdrive|drivefire|skymovieshd|toonworld4all|kayoanime|cinevood|gdflix|filepress|pressbee|filebee|appdrive)\.\S+",
+            r"https?:\/\/.+\.(1tamilmv|gdtot|filepress|pressbee|gdflix|sharespark)\.\S+|https?:\/\/(sharer|onlystream|hubdrive|hubcloud|katdrive|drivefire|skymovieshd|toonworld4all|kayoanime|cinevood|gdflix|filepress|pressbee|filebee|appdrive)\.\S+",
             url,
         )
     )
@@ -59,9 +59,16 @@ async def direct_link_checker(link, onlylink=False):
             "mirrobox",
             "momerybox",
             "teraboxapp",
+            "terasharefile",
+            "freeterabox",
+            "teraboxlink",
+            "terafileshare",
+            "teraboxshare",
         ]
     ):
-        return await terabox(link)
+        dlinks = await terabox(link)
+        # Single file → return plain string; multi-file → return list for numbered display
+        return dlinks[0] if len(dlinks) == 1 else dlinks
     elif "drive.google.com" in link:
         return get_dl(link, True)
 
@@ -180,7 +187,7 @@ async def direct_link_checker(link, onlylink=False):
         blink = await transcript(
             link, "https://link1s.com", "https://anhdep24.com/", 9
         )
-    elif bool(match(r"https?:\/\/tulinks\.\S+", link)):
+    elif bool(match(r"https?:\/\/tulinks\.(one|net|com|online)\S*", link)):
         blink = await transcript(
             link, "https://tulinks.one", "https://www.blogger.com/", 8
         )
@@ -253,13 +260,13 @@ async def direct_link_checker(link, onlylink=False):
         blink = await transcript(
             link, "https://vzu.us/", "https://newsbawa.com/", 5
         )
+    elif bool(match(r"https?:\/\/v2\.kpslink\.\S+", link)):
+        blink = await transcript(
+            link, "https://v2.kpslink.in/", "https://infotamizhan.xyz/", 5
+        )
     elif bool(match(r"https?:\/\/(.+\.)?kpslink\.\S+", link)):
         blink = await transcript(
             link, "https://kpslink.in/", "https://infotamizhan.xyz/", 3.1
-        )
-    elif bool(match(r"https?:\/\/v2.kpslink\.\S+", link)):
-        blink = await transcript(
-            link, "https://v2.kpslink.in/", "https://infotamizhan.xyz/", 5
         )
     elif bool(match(r"https?:\/\/tamizhmasters\.\S+", link)):
         blink = await transcript(
@@ -379,7 +386,7 @@ async def direct_link_checker(link, onlylink=False):
         blink = await linkvertise(link)
     elif bool(match(r"https?:\/\/rslinks\.\S+", link)):
         blink = await rslinks(link)
-    elif bool(match(r"https?:\/\/(bit|tinyurl|(.+\.)short|shorturl|t)\.\S+", link)):
+    elif bool(match(r"https?:\/\/(bit\.ly|tinyurl\.com|(.+\.)short\.\S+|shorturl\.at|t\.ly)\S*", link)):
         blink = await shorter(link)
     elif bool(match(r"https?:\/\/appurl\.\S+", link)):
         blink = await appurl(link)
@@ -407,6 +414,8 @@ async def direct_link_checker(link, onlylink=False):
         return await tamilmv(link)
 
     # DL Links
+    elif bool(match(r"https?:\/\/hubcloud\.\S+", link)):
+        return await hubcloud(link)
     elif bool(match(r"https?:\/\/hubdrive\.\S+", link)):
         return await drivescript(link, Config.HUBDRIVE_CRYPT, "HubDrive")
     elif bool(match(r"https?:\/\/katdrive\.\S+", link)):
@@ -420,7 +429,9 @@ async def direct_link_checker(link, onlylink=False):
             return await gdtot(link)
         elif "filepress" in domain or "pressbee" in domain:
             return await filepress(link)
-        elif "appdrive" in domain or "gdflix" in domain:
+        elif "gdflix" in domain:
+            return await gdflix(link)
+        elif "appdrive" in domain:
             return await appflix(link)
         else:
             return await sharer_scraper(link)
@@ -437,7 +448,13 @@ async def direct_link_checker(link, onlylink=False):
         return blink
 
     links = []
-    while True:
+    depth = 0
+    MAX_DEPTH = 10
+    seen_links = set()
+    while depth < MAX_DEPTH:
+        if blink in seen_links:
+            break  # redirect loop detected
+        seen_links.add(blink)
         try:
             links.append(blink)
             blink = await direct_link_checker(blink, onlylink=True)
@@ -446,4 +463,5 @@ async def direct_link_checker(link, onlylink=False):
                 break
         except Exception:
             break
+        depth += 1
     return links

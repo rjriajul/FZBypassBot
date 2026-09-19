@@ -7,7 +7,7 @@ async def recaptchaV3(
 ):
     rs = Session()
     rs.headers.update({"content-type": "application/x-www-form-urlencoded"})
-    matches = findall("([api2|enterprise]+)\/anchor\?(.*)", ANCHOR_URL)[0]
+    matches = findall(r"([api2|enterprise]+)/anchor\?(.*)", ANCHOR_URL)[0]
     url_base = "https://www.google.com/recaptcha/" + matches[0] + "/"
     params = matches[1]
     res = rs.get(url_base + "anchor", params=params)

@@ -32,6 +32,8 @@
 - _Supported for Authorized Chats & Topics_
 - _Added Support for Inline Bypass ( Use anytime anywhere)_
   > **Enable:** BotFather -> Bot Settings -> Inline Mode (Turn On)
+- _Terabox DDL generation — works via API or cookie (see [Terabox Setup](#terabox-setup))_
+- _Channel Auto-Bypass — bot edits channel posts in-place, replacing links with bypassed versions (no new message sent)_
 
 ---
 
@@ -120,7 +122,7 @@
 |`surl.li`|✅️| **Unknown**|
 |`sxslink.com`|✅️| **Unknown**|
 |`tamizhmasters.com`|⚠️| **Unknown**|
-|`terabox.*` + `terabox.*` + `nephobox.*` + `4funbox.*` + `mirrobox.*` + `momerybox.*` + `teraboxapp.*`|✅️| **Unknown**|
+|`terabox.*` + `1024tera.*` + `nephobox.*` + `4funbox.*` + `mirrobox.*` + `momerybox.*` + `teraboxapp.*` + `terasharefile.*` + `freeterabox.*` + `teraboxlink.*` + `terafileshare.*` + `teraboxshare.*` — [Setup ↗](#terabox-setup)|✅️| **17-09-2026**|
 |`tglink.in`|✅️| **Unknown**|
 |`tinyfy.in`|✅️| **Unknown**|
 |`try2link.com`|✅️| **18-04-2024**|
@@ -160,9 +162,9 @@
 |:------------:|:----------:|:----------------:|
 |`appdrive.*` **(File + Pack)**|✅️|**Unknown**|
 |`drivefire.co`|✅️|**Unknown**|
-|`*.gdflix.*`**(File + Pack)**|❌️|**Unknown**|
-✅️|**Unknown**|
-|`hubdrive.lat` **(Instant Link)**|
+|`*.gdflix.*` + `gdflix.dev` **(R2, PixelDrain, GoFile, Direct Server — all buttons)**|✅️|**17-09-2026**|
+|`hubdrive.*` **(via HubCloud — FSLv2, FSL, ZipDisk, Pixeldrain, Buzz servers)**|✅️|**17-09-2026**|
+|`hubcloud.*` **(Direct — all download servers)**|✅️|**17-09-2026**|
 |`katdrive.org` **(Direct Download)**|✅️|**Unknown**|
 |`new*.gdtot.zip`|️❌️| **Unknown**|
 |`new*.filepress.store` + `filebee.xyz` + `onlystream.xyz` + `pressbee.xyz`**( Only Tg Links )**|✅️|**Unknown**|
@@ -172,7 +174,38 @@
 
 ---
 
-## ***Deploy Guide***
+## ***Terabox Setup***
+
+Terabox links are resolved in two ways, tried in order:
+
+### 1. Via terabox-downloader-api _(Recommended)_
+
+Deploy your own instance of [terabox-downloader-api](https://github.com/MeherMankar/terabox-downloader-api) and set its URL as `TERABOX_API_URL`.
+
+The API returns **proxy links** that anyone can download directly — no Terabox account or cookie needed on the client side.
+
+**Deploy to Render (free tier):**
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy)
+
+1. Fork [terabox-downloader-api](https://github.com/MeherMankar/terabox-downloader-api)
+2. Create a new **Web Service** on [Render](https://render.com) pointing to your fork
+3. Set the environment variable `TERABOX_COOKIE=ndus=YOUR_NDUS_VALUE`
+4. Copy the deployed URL (e.g. `https://your-app.onrender.com`) into `TERABOX_API_URL` in this bot's config
+
+> **Tip:** The API supports a pool of multiple `ndus` accounts for load balancing:
+> `TERABOX_COOKIE=ndus=VALUE1,ndus=VALUE2,ndus=VALUE3`
+
+### 2. Direct cookie bypass _(Fallback)_
+
+Set `TERA_COOKIE` to your Terabox `ndus` cookie value. The bot will use this if `TERABOX_API_URL` is not configured or the API is unavailable. Note: download links returned this way require the `ndus` cookie to actually download.
+
+**Getting your `ndus` cookie:**
+1. Log in to [terabox.com](https://www.terabox.com) in your browser
+2. Open DevTools → Application → Cookies → `www.terabox.com`
+3. Copy the value of the `ndus` cookie
+
+---
 1. `Heroku` or `Koyeb` or `Render` or `Scalingo` or _**More**_ _(Recommended)_
     - Use [pyTele-Loader](https://github.com/SilentDemonSD/pyTele-Loader) and Follow further Steps.
     - **Variables Values:**
@@ -221,16 +254,19 @@
 - `API_HASH`: This is to authenticate your Telegram account for downloading Telegram files. You can get this from https://my.telegram.org.
 - `AUTH_CHATS`: Group ID (with Topic ID), Separated by space.
   > **Format:** chat_id:topic_id chat_id chat_id:topic_id
+- `AUTH_CHANNELS`: Channel IDs where the bot will auto-bypass links by editing posts in-place. Separated by space. Bot must be admin with **Edit Messages** permission.
+  > **Format:** -100xxxxxxxxxx -100xxxxxxxxxx
 - `AUTO_BYPASS`: Change between Command Mode or Auto Bypass Mode. Default is False.
 - `CMD_SUFFIX`: Suffix added to every bot command, useful when running many bots in one chat. Example: `1` makes `/bypass` become `/bypass1`. Default is empty.
 - `GDTOT_CRYPT`: GdToT Crypt (Optional). It works with & without Crypt!
-- `HUBDRIVE_CRYPT`: HubDrive Crypt (Optional), It works with or without Cookie, Get from Cookie Editor Extension.
+- `HUBDRIVE_CRYPT`: No longer required. HubDrive is now bypassed via HubCloud — no cookie needed.
 - `KATDRIVE_CRYPT`: KatDrive Crypt (Optional), It works with or without Cookie, Get from Cookie Editor Extension.
 - `DRIVEFIRE_CRYPT`: DriveFire Crypt, Get from Cookie Editor Extension.
 - `DIRECT_INDEX`: Direct Fast Download GDrive Links.
   - Generate via [Google-Drive-Index](https://gitlab.com/GoogleDriveIndex/cloudflare-gdrive-download-worker/-/blob/main/src/worker.js). Follow further from inside the script. Copy & Deploy on [CF Workers](https://cloudflare.com)
   - Get Raw `Refresh Token` from [lavarel-google](https://github.com/ivanvermeyen/laravel-google-drive-demo/blob/master/README/2-getting-your-refresh-token.md)
-- `TERA_COOKIE`: Get the Terabox `ndus` Cookie from Cookie Editor Extension.
+- `TERA_COOKIE`: Get the Terabox `ndus` Cookie from Cookie Editor Extension. Used as **fallback** when `TERABOX_API_URL` is not set or unavailable.
+- `TERABOX_API_URL`: URL of your deployed [terabox-downloader-api](https://github.com/MeherMankar/terabox-downloader-api) instance (e.g. `https://your-app.onrender.com`). When set, Terabox links are resolved via the API and returned as **proxy links** — anyone can download without needing a Terabox account. Falls back to `TERA_COOKIE` on failure. See [Terabox Setup](#terabox-setup) below.
 - `LARAVEL_SESSION`: Get from `sharer.pw` Cookie for Login base.
 - `PORT`: Port for the health web server, default `8080`. `Render` & `Koyeb` set `$PORT` themselves, so leave it empty there.
 - `XSRF_TOKEN`: Get from `sharer.pw` Cookie for Login base.

@@ -3,9 +3,11 @@ from time import time
 from wzgram import Client
 from wzgram.enums import ParseMode
 from logging import getLogger, FileHandler, StreamHandler, INFO, ERROR, basicConfig
-from uvloop import install
-
-install()
+try:
+    from uvloop import install
+    install()
+except ImportError:
+    pass  # uvloop is Linux-only; Windows uses the default asyncio event loop
 basicConfig(
     format="[%(asctime)s] [%(levelname)s] - %(message)s",  #  [%(filename)s:%(lineno)d]
     datefmt="%d-%b-%y %I:%M:%S %p",
@@ -37,7 +39,7 @@ class Config:
     if not BOT_TOKEN or not API_HASH or not API_ID or not OWNER_ID:
         LOGGER.critical("Variables Missing. Exiting Now...")
         exit(1)
-    CMD_SUFFIX = str(conf("CMD_SUFFIX"))
+    CMD_SUFFIX = str(conf("CMD_SUFFIX") or "")
     AUTO_BYPASS = str(conf("AUTO_BYPASS", "False")).lower() == "true"
     _auth = conf("AUTH_CHATS")
     AUTH_CHATS = _auth.split() if isinstance(_auth, str) else [str(c) for c in _auth]
@@ -49,6 +51,9 @@ class Config:
     HUBDRIVE_CRYPT = conf("HUBDRIVE_CRYPT")
     KATDRIVE_CRYPT = conf("KATDRIVE_CRYPT")
     TERA_COOKIE = conf("TERA_COOKIE")
+    TERABOX_API_URL = conf("TERABOX_API_URL").rstrip("/")
+    _channels = conf("AUTH_CHANNELS")
+    AUTH_CHANNELS = _channels.split() if isinstance(_channels, str) and _channels else []
 
 
 Bypass = Client(

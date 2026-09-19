@@ -1,0 +1,30 @@
+# Secrets — never bake into image layers
+config.env
+.env
+*.env
+
+# Telegram session files
+*.session
+*.session-shm
+*.session-wal
+*.session.lock
+
+# Runtime artefacts
+log.txt
+.restartmsg
+FZBypass/temp.txt
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+
+# Development
+.venv/
+.git/
+*.md
+FZNotebook/
+start.ps1
+
+# Test/verify scripts
+_verify.py
+_test_*.py
